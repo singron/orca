@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use failure::Error;
 use hyper::Request;
 use url::form_urlencoded;
 
-use net::body_from_map;
 use App;
 
 impl App {
@@ -14,14 +11,9 @@ impl App {
 	/// * `subject` - Subject of the message
 	/// * `body` - Body of the message
 	pub fn message(&self, to: &str, subject: &str, body: &str) -> Result<(), Error> {
-		let subject: String = form_urlencoded::byte_serialize(subject.as_bytes()).collect();
-		let body: String = form_urlencoded::byte_serialize(body.as_bytes()).collect();
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("to", to);
-		params.insert("subject", &subject);
-		params.insert("text", &body);
+		let form = form_urlencoded::Serializer::new(String::new()).append_pair("to", to).append_pair("subject", subject).append_pair("text", body).finish();
 
-		let req = Request::post("https://oauth.reddit.com/api/compose/.json").body(body_from_map(&params)).unwrap();
+		let req = Request::post("https://oauth.reddit.com/api/compose/.json").body(form.into()).unwrap();
 
 		match self.conn.run_auth_request(req) {
 			Ok(_) => Ok(()),

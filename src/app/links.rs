@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use failure::Error;
 use hyper::Request;
@@ -6,7 +6,6 @@ use json::Value;
 use url::form_urlencoded;
 
 use data::{Comment, Listing};
-use net::body_from_map;
 use {App, RedditError};
 
 impl App {
@@ -15,12 +14,9 @@ impl App {
 	/// * `text` - The body of the comment
 	/// * `thing` - Fullname of the thing to comment on
 	pub fn comment(&self, text: &str, thing: &str) -> Result<(), Error> {
-		let text: String = form_urlencoded::byte_serialize(text.as_bytes()).collect();
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("text", &text);
-		params.insert("thing_id", thing);
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("text", text).append_pair("thing_id", thing).finish();
 
-		let req = Request::post("https://oauth.reddit.com/api/comment").body(body_from_map(&params)).unwrap();
+		let req = Request::post("https://oauth.reddit.com/api/comment").body(body.into()).unwrap();
 
 		self.conn.run_auth_request(req)?;
 		Ok(())
@@ -62,16 +58,16 @@ impl App {
 		let mut lists = Vec::new();
 
 		for chunk in chunks {
-			let mut params: HashMap<&str, &str> = HashMap::new();
-			params.insert("children", &chunk);
-			params.insert("link_id", link_id);
-			params.insert("id", morechildren_id);
-			params.insert("api_type", "json");
-
+			let body = form_urlencoded::Serializer::new(String::new())
+				.append_pair("children", &chunk)
+				.append_pair("link_id", link_id)
+				.append_pair("id", morechildren_id)
+				.append_pair("api_type", "json")
+				.finish();
 			trace!("Getting more children {} from {}", chunk, link_id);
 
 			//let mut req = Request::new(Method::Get, Url::parse_with_params("https://www.reddit.com/api/morechildren/.json", params)?.into_string().parse()?);
-			let req = Request::post("https://www.reddit.com/api/morechildren/.json").body(body_from_map(&params)).unwrap();
+			let req = Request::post("https://www.reddit.com/api/morechildren/.json").body(body.into()).unwrap();
 			let data = self.conn.run_request(req)?;
 
 			trace!("Scanning {}", data);
@@ -100,9 +96,8 @@ impl App {
 	/// * `slot` - Optional slot number to fill (can only be 1 or 2, and will error otherwise)
 	/// * `id` - _fullname_ of the post to sticky
 	pub fn set_sticky(&self, sticky: bool, slot: Option<i32>, id: &str) -> Result<(), Error> {
-		let numstr;
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("state", if sticky { "1" } else { "0" });
+		let mut body = form_urlencoded::Serializer::new(String::new());
+		body.append_pair("state", if sticky { "1" } else { "0" });
 
 		if let Some(num) = slot {
 			if num != 1 && num != 2 {
@@ -111,13 +106,13 @@ impl App {
 					response: "not sent".to_string(),
 				}));
 			}
-			numstr = num.to_string();
-			params.insert("num", &numstr);
+			let numstr = num.to_string();
+			body.append_pair("num", &numstr);
 		}
 
-		params.insert("id", id);
+		body.append_pair("id", id);
 
-		let req = Request::post("https://oauth.reddit.com/api/set_subreddit_sticky/.json").body(body_from_map(&params)).unwrap();
+		let req = Request::post("https://oauth.reddit.com/api/set_subreddit_sticky/.json").body(body.finish().into()).unwrap();
 
 		self.conn.run_auth_request(req).ok();
 
@@ -133,16 +128,15 @@ impl App {
 	/// # Returns
 	/// A result with reddit's json response to the submission
 	pub fn submit_self(&self, sub: &str, title: &str, text: &str, sendreplies: bool) -> Result<Value, Error> {
-		let title: String = form_urlencoded::byte_serialize(title.as_bytes()).collect();
-		let text: String = form_urlencoded::byte_serialize(text.as_bytes()).collect();
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("sr", sub);
-		params.insert("kind", "self");
-		params.insert("title", &title);
-		params.insert("text", &text);
-		params.insert("sendreplies", if sendreplies { "true" } else { "false" });
+		let body = form_urlencoded::Serializer::new(String::new())
+			.append_pair("sr", sub)
+			.append_pair("kind", "self")
+			.append_pair("title", title)
+			.append_pair("text", text)
+			.append_pair("sendreplies", if sendreplies { "true" } else { "false" })
+			.finish();
 
-		let req = Request::post("https://oauth.reddit.com/api/submit/.json").body(body_from_map(&params)).unwrap();
+		let req = Request::post("https://oauth.reddit.com/api/submit/.json").body(body.into()).unwrap();
 
 		self.conn.run_auth_request(req)
 	}

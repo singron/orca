@@ -226,20 +226,6 @@ impl Connection {
 	}
 }
 
-/// Creates a HTTP/hyper Body from a hashmap, in urlencoded form.
-pub fn body_from_map<S: BuildHasher>(map: &HashMap<&str, &str, S>) -> Body {
-	let mut body_str = String::new();
-
-	for (i, item) in map.iter().enumerate() {
-		// Push the paramater to the body with an & at the end unless it's the last parameter
-		body_str.push_str(&format!("{}={}{}", item.0, item.1, if i < map.len() - 1 { "&" } else { "" }));
-	}
-
-	trace!("Setup body: \n{}\n", body_str);
-
-	Body::from(body_str)
-}
-
 /// Creates a url with encoded parameters from hashmap. Right now it's kinda hacky
 pub fn uri_params_from_map<S: BuildHasher>(url: &str, map: &HashMap<&str, &str, S>) -> Result<Uri, Error> {
 	use url::Url;

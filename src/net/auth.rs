@@ -76,10 +76,9 @@ use hyper::server::Server;
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Error as HyperError, Method, Request, Response};
 use open;
-use url::{self, Url};
+use url::{form_urlencoded, Url};
 
 use errors::RedditError;
-use net::body_from_map;
 use net::Connection;
 
 /// Function type that is passed into OAuthApp::InstalledApp to generate response from code retrieval.
@@ -134,12 +133,10 @@ impl OAuth {
 			} => {
 				let old_refresh_token = if let Some(ref refresh_token) = *refresh_token.borrow() { refresh_token.clone() } else { return Err(RedditError::AuthError.into()) };
 				// Get the access token with the new code we just got
-				let mut params: HashMap<&str, &str> = HashMap::new();
-				params.insert("grant_type", "refresh_token");
-				params.insert("refresh_token", &old_refresh_token);
+				let body = form_urlencoded::Serializer::new(String::new()).append_pair("grant_type", "refresh_token").append_pair("refresh_token", &old_refresh_token).finish();
 
 				// Request for the access token
-				let mut tokenreq = Request::builder().method(Method::POST).uri("https://www.reddit.com/api/v1/access_token/.json").body(body_from_map(&params)).unwrap();
+				let mut tokenreq = Request::builder().method(Method::POST).uri("https://www.reddit.com/api/v1/access_token/.json").body(body.into()).unwrap();
 				// httpS is important
 				tokenreq.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Basic {}", { base64::encode(&format!("{}:", id)) })).unwrap());
 
@@ -170,13 +167,10 @@ impl OAuth {
 	/// * `password` - The password of the user to authorize as
 	pub fn create_script(conn: &Connection, id: &str, secret: &str, username: &str, password: &str) -> Result<OAuth, Error> {
 		// authorization paramaters to request
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("grant_type", "password");
-		params.insert("username", &username);
-		params.insert("password", &password);
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("grant_type", "password").append_pair("username", username).append_pair("password", password).finish();
 
 		// Request for the bearer token
-		let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body_from_map(&params)).unwrap();
+		let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body.into()).unwrap();
 		// httpS is important
 		tokenreq.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Basic {}", { base64::encode(&format!("{}:{}", id, secret)) })).unwrap());
 
@@ -291,13 +285,10 @@ impl OAuth {
 		};
 
 		// Get the access token with the new code we just got
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("grant_type", "authorization_code");
-		params.insert("code", &code);
-		params.insert("redirect_uri", &redirect);
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("grant_type", "authorization_code").append_pair("code", &code).append_pair("redirect_uri", redirect).finish();
 
 		// Request for the access token
-		let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body_from_map(&params)).unwrap();
+		let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body.into()).unwrap();
 		// httpS is important
 		tokenreq.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:", id)))).unwrap());
 
@@ -552,7 +543,7 @@ impl Service for InstalledAppService {
 		// Get the data from the request (the state and the code, or the error) in a HashMap
 		let query_str = req.uri().path_and_query().unwrap().as_str();
 		let query_str = &query_str[2..query_str.len()];
-		let params: HashMap<_, _> = url::form_urlencoded::parse(query_str.as_bytes()).collect();
+		let params: HashMap<_, _> = form_urlencoded::parse(query_str.as_bytes()).collect();
 
 		// Create a HTTP response based on the result of the code retrieval, the code sender, and the
 		// response generator.

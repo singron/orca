@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use failure::Error;
 use hyper::{Body, Request};
 use json::Value;
-use url::Url;
+use url::{form_urlencoded, Url};
 
 use data::{Comment, Comments, Listing, Post, Thing};
-use net::{body_from_map, uri_params_from_map};
+use net::uri_params_from_map;
 use {App, Sort};
 
 impl App {
@@ -90,10 +90,9 @@ impl App {
 	pub fn get_comment_tree(&self, post: &str) -> Result<Listing<Comment>, Error> {
 		// TODO add sorting and shit
 
-		let mut params: HashMap<&str, &str> = HashMap::new();
-		params.insert("limit", "2147483648");
-		params.insert("depth", "2147483648");
-		let req = Request::get(format!("https://www.reddit.com/comments/{}/.json", post)).body(body_from_map(&params)).unwrap();
+		let max_int = "2147483648";
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("limit", max_int).append_pair("depth", max_int).finish();
+		let req = Request::get(format!("https://www.reddit.com/comments/{}/.json", post)).body(body.into()).unwrap();
 
 		let data = self.conn.run_request(req)?;
 		let data = data[1]["data"]["children"].clone();
