@@ -49,6 +49,10 @@ pub struct Comment {
 	pub score_hidden: bool,
 	/// The fullname of the comment (includes the t1_ prefix)
 	pub name: String,
+	/// The unix time the comment was created.
+	pub created_utc: f64,
+	/// The permalink path of this comment.
+	pub permalink: String,
 	/// A listing of replies to this comment
 	pub replies: Listing<Comment>,
 }
@@ -123,6 +127,14 @@ impl Thing for Comment {
 			Some(t) => t.to_string(),
 			None => out!(val),
 		};
+		let created_utc: f64 = match val["created_utc"].as_f64() {
+			Some(t) => t,
+			None => out!(val),
+		};
+		let permalink: String = match val["permalink"].as_str() {
+			Some(t) => t.to_string(),
+			None => out!(val),
+		};
 		let replies: Listing<Comment> = match val["replies"] {
 			Value::String(_) => Listing::new(),
 			Value::Object(_) => Listing::from_value(&val["replies"]["data"]["children"], &link_id, app).unwrap(),
@@ -144,6 +156,8 @@ impl Thing for Comment {
 			subreddit,
 			score_hidden,
 			name,
+			created_utc,
+			permalink,
 			replies,
 		})
 	}
