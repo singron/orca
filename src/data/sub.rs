@@ -27,13 +27,26 @@ impl<'a> Comments<'a> {
 	}
 
 	fn refresh(&mut self, app: &App) {
-		let mut resp = app.get_recent_comments(&self.sub, Some(500), self.last.as_ref().map(|s| s.as_str())).expect("Could not get recent comments");
+		let mut fails = 0;
+		let resp = loop {
+			match app.get_recent_comments(&self.sub, Some(500), self.last.as_ref().map(|s| s.as_str())) {
+				Ok(x) => break x,
+				Err(e) => {
+					log::warn!("Error from get_recent_comments, retrying: {}\n", e);
+					std::thread::sleep(std::time::Duration::from_millis(fails * 1000 + rand::random::<u64>() % 1000));
+					fails = (fails + 1).min(10);
+					continue;
+				}
+			}
+		};
 
-		if let Some(comment) = resp.by_ref().peekable().peek() {
+		if let Some(comment) = resp.children.front() {
 			self.last = Some(comment.name.clone());
 		}
 
-		self.cache.append(&mut resp.children);
+		// The result is in reverse-chronological order, so put the reverse order in the
+		// cache.
+		self.cache.extend(resp.children.into_iter().rev());
 	}
 }
 
