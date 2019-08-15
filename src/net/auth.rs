@@ -101,7 +101,9 @@ pub enum OAuth {
 		/// Password of the script user
 		password: String,
 		/// Token retrieved from script authorization
-		token: String,
+		token: RefCell<String>,
+		/// Instant when the current token expires
+		expire_instant: Cell<Instant>,
 	},
 	/// Installed app type
 	InstalledApp {
@@ -119,11 +121,42 @@ pub enum OAuth {
 	},
 }
 
+fn get_token_from_password(conn: &Connection, id: &str, secret: &str, username: &str, password: &str) -> Result<(String, Instant), Error> {
+	// authorization paramaters to request
+	let body = form_urlencoded::Serializer::new(String::new()).append_pair("grant_type", "password").append_pair("username", username).append_pair("password", password).finish();
+
+	// Request for the bearer token
+	let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body.into()).unwrap();
+	// httpS is important
+	tokenreq.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Basic {}", { base64::encode(&format!("{}:{}", id, secret)) })).unwrap());
+
+	let now = Instant::now();
+	// Send the request and get the bearer token as a response
+	let response = conn.run_request(tokenreq)?;
+	if let (Some(token), Some(expires_in)) = (response.get("access_token"), response.get("expires_in")) {
+		Ok((token.as_str().unwrap().to_owned(), now + Duration::from_secs(expires_in.as_u64().unwrap())))
+	} else {
+		Err(RedditError::AuthError.into())
+	}
+}
+
 impl OAuth {
 	/// Refreshes the token (only necessary for installed app types)
 	pub fn refresh(&self, conn: &Connection) -> Result<(), Error> {
-		match *self {
-			OAuth::Script { .. } => Ok(()),
+		match self {
+			OAuth::Script {
+				id,
+				secret,
+				username,
+				password,
+				ref token,
+				ref expire_instant,
+			} => {
+				let (new_token, new_expires) = get_token_from_password(conn, &id, &secret, &username, &password)?;
+				token.replace(new_token);
+				expire_instant.replace(new_expires);
+				Ok(())
+			}
 			OAuth::InstalledApp {
 				ref id,
 				redirect: ref _redirect,
@@ -166,29 +199,15 @@ impl OAuth {
 	/// * `username` - The username of the user to authorize as
 	/// * `password` - The password of the user to authorize as
 	pub fn create_script(conn: &Connection, id: &str, secret: &str, username: &str, password: &str) -> Result<OAuth, Error> {
-		// authorization paramaters to request
-		let body = form_urlencoded::Serializer::new(String::new()).append_pair("grant_type", "password").append_pair("username", username).append_pair("password", password).finish();
-
-		// Request for the bearer token
-		let mut tokenreq = Request::builder().method(Method::POST).uri("https://ssl.reddit.com/api/v1/access_token/.json").body(body.into()).unwrap();
-		// httpS is important
-		tokenreq.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Basic {}", { base64::encode(&format!("{}:{}", id, secret)) })).unwrap());
-
-		// Send the request and get the bearer token as a response
-		let response = conn.run_request(tokenreq)?;
-
-		if let Some(token) = response.get("access_token") {
-			let token = token.as_str().unwrap().to_string();
-			Ok(OAuth::Script {
-				id: id.to_string(),
-				secret: secret.to_string(),
-				username: username.to_string(),
-				password: password.to_string(),
-				token,
-			})
-		} else {
-			Err(RedditError::AuthError.into())
-		}
+		let (token, expire_instant) = get_token_from_password(conn, id, secret, username, password)?;
+		Ok(OAuth::Script {
+			id: id.to_string(),
+			secret: secret.to_string(),
+			username: username.to_string(),
+			password: password.to_string(),
+			token: RefCell::new(token),
+			expire_instant: Cell::new(expire_instant),
+		})
 	}
 
 	/// Authorize the app as an installed app

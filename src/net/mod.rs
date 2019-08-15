@@ -168,47 +168,49 @@ impl Connection {
 	/// Send a request to reddit with authorization headers
 	pub fn run_auth_request(&self, mut req: Request<Body>) -> Result<Value, Error> {
 		if let Some(ref auth) = self.auth {
-			let req_str = format!("{:?}", req);
-			req.headers_mut().insert(
-				header::AUTHORIZATION,
-				HeaderValue::from_str(&format!(
-					"Bearer {}",
-					match *auth {
-						OAuth::Script {
-							id: ref _id,
-							secret: ref _secret,
-							username: ref _username,
-							password: ref _password,
-							ref token,
-						} => token.to_string(),
-						OAuth::InstalledApp {
-							id: ref _id,
-							redirect: ref _redirect,
-							ref token,
-							ref refresh_token,
-							ref expire_instant,
-						} => {
-							// If the token can expire and we are able to refresh it
-							if let (Some(_refresh_token), Some(expire_instant)) = (refresh_token.borrow().clone(), expire_instant.get()) {
-								// If the token's expired, refresh it
-								if Instant::now() > expire_instant {
-									auth.refresh(self)?;
-								}
-								token.borrow().to_string()
-							} else if let Some(expire_instant) = expire_instant.get() {
-								if Instant::now() > expire_instant {
-									return Err(Error::from(RedditError::Forbidden { request: format!("{:?}", req_str) }));
-								} else {
-									token.borrow().to_string()
-								}
-							} else {
-								token.borrow().to_string()
-							}
-						}
+			let token = match auth {
+				OAuth::Script {
+					id: ref _id,
+					secret: ref _secret,
+					username: ref _username,
+					password: ref _password,
+					ref token,
+					ref expire_instant,
+				} => {
+					use std::ops::Add;
+					if Instant::now().add(Duration::from_secs(120)) > expire_instant.get() {
+						// About to expire. Renew now.
+						auth.refresh(self)?;
 					}
-				))
-				.unwrap(),
-			);
+					token.borrow()
+				}
+				OAuth::InstalledApp {
+					id: ref _id,
+					redirect: ref _redirect,
+					ref token,
+					ref refresh_token,
+					ref expire_instant,
+				} => {
+					// If the token can expire and we are able to refresh it
+					if let (Some(_refresh_token), Some(expire_instant)) = (refresh_token.borrow().clone(), expire_instant.get()) {
+						// If the token's expired, refresh it
+						if Instant::now() > expire_instant {
+							auth.refresh(self)?;
+						}
+						token.borrow()
+					} else if let Some(expire_instant) = expire_instant.get() {
+						if Instant::now() > expire_instant {
+							return Err(Error::from(RedditError::Forbidden { request: format!("{:?}", req) }));
+						} else {
+							token.borrow()
+						}
+					} else {
+						token.borrow()
+					}
+				}
+			};
+			let token_str: &str = &*token;
+			req.headers_mut().insert(header::AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token_str)).unwrap());
 			self.run_request(req)
 		} else {
 			Err(Error::from(RedditError::Forbidden { request: format!("{:?}", req) }))
