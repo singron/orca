@@ -22,6 +22,17 @@ impl App {
 		Ok(())
 	}
 
+	/// Edits a thing. The `thing` can be a post or a comment.
+	/// # Arguments
+	/// * `text` - The new body of the thing
+	/// * `thing` - Fullname of the thing to edit
+	pub fn edit(&self, text: &str, thing: &str) -> Result<(), Error> {
+		let body = form_urlencoded::Serializer::new(String::new()).append_pair("text", text).append_pair("thing_id", thing).finish();
+		let req = Request::post("https://oauth.reddit.com/api/editusertext").body(body.into()).unwrap();
+		self.conn.run_auth_request(req)?;
+		Ok(())
+	}
+
 	/// Load more comments from a comment tree that is not completely loaded. This function at the moment can only be called
 	/// internally due to requiring `morechildren_id` that is not available in the `Thread` type.
 	/// # Arguments

@@ -9,6 +9,100 @@ use data::{Comment, Comments, Listing, Post, Thing};
 use net::uri_params_from_map;
 use {App, Sort};
 
+macro_rules! options {
+    ($(#[$($sattr:tt)*])*
+     $v:vis struct $name:ident $(<$($lt:tt),*>)* {
+        $($(#[$($attr:tt)*])*
+          $fname:ident : $typ:ty ,)*
+    }) => {
+        $(#[$($sattr)*])*
+        $v struct $name $(<$($lt),*>)* {
+            $($(#[$($attr)*])* $fname: Option<$typ>,)*
+        }
+        impl $(<$($lt),*>)* $name $(<$($lt),*>)* {
+            $(
+                $(#[$($attr)*])*
+                $v fn $fname(&mut self, $fname: $typ) -> &mut Self {
+                    self.$fname = Some($fname);
+                    self
+                }
+            )*
+        }
+    }
+}
+
+options!(
+	/// A builder struct for constructing options for listings. The vague doc comments come
+	/// from the reddit api documentation.
+	#[derive(Default)]
+	pub struct UserListingOpts<'a> {
+		/// Context to show between 2 and 10
+		context: u32,
+		/// one of (given)
+		show: &'a str,
+		/// one of (hot, new, top, controversial)
+		sort: &'a str,
+		/// one of (hour, day, week, month, year, all)
+		t: &'a str,
+		/// one of (links, comments)
+		typ: &'a str,
+		/// fullname of a thing
+		after: &'a str,
+		/// fullname of a thing
+		before: &'a str,
+		/// a positive integer (default: 0)
+		count: u32,
+		/// boolean value
+		include_categories: bool,
+		/// the maximum number of items desired (default: 25, maximum: 100)
+		limit: u32,
+	}
+);
+
+impl UserListingOpts<'_> {
+	fn append_opts<T: form_urlencoded::Target>(&self, form: &mut form_urlencoded::Serializer<T>) {
+		trait Val {
+			type Output: AsRef<str>;
+			fn val(&self) -> Self::Output;
+		}
+		impl<'a> Val for &'a str {
+			type Output = &'a str;
+			fn val(&self) -> Self::Output {
+				self
+			}
+		}
+		impl<'a> Val for u32 {
+			type Output = String;
+			fn val(&self) -> Self::Output {
+				self.to_string()
+			}
+		}
+		impl<'a> Val for bool {
+			type Output = String;
+			fn val(&self) -> Self::Output {
+				self.to_string()
+			}
+		}
+		macro_rules! trivial {
+			($s:expr, $name:ident) => {
+				if let Some($name) = self.$name {
+					form.append_pair($s, &Val::val(&$name));
+					}
+			};
+		}
+		trivial!("context", context);
+		trivial!("show", show);
+		trivial!("sort", sort);
+		trivial!("t", t);
+		trivial!("type", typ);
+		trivial!("after", after);
+		trivial!("before", before);
+		trivial!("count", count);
+		trivial!("include_categories", include_categories);
+		trivial!("limit", limit);
+	}
+}
+
 impl App {
 	/// Loads a thing and casts it to the type of anything as long as it implements the Thing trait. Experimental
 	/// # Arguments
@@ -98,5 +192,17 @@ impl App {
 		let data = data[1]["data"]["children"].clone();
 
 		Listing::from_value(&data, post, self)
+	}
+
+	/// Get comments made by a given user.
+	pub fn get_user_comments(&self, username: &str, opts: &UserListingOpts) -> Result<Listing<Comment>, Error> {
+		let mut body = form_urlencoded::Serializer::new(String::new());
+		opts.append_opts(&mut body);
+		let req = Request::get(format!("https://www.reddit.com/user/{}/comments.json", username)).body(body.finish().into()).unwrap();
+
+		let data = self.conn.run_request(req)?;
+		let data = data["data"]["children"].clone();
+
+		Listing::from_value(&data, username, self)
 	}
 }

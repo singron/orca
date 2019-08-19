@@ -9,6 +9,8 @@ use failure::Error;
 
 use net::{Connection, LimitMethod};
 
+pub use self::listings::UserListingOpts;
+
 /// A reddit object
 /// ## Usage:
 /// To create a new instance, use `Reddit::new()`
