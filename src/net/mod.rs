@@ -13,7 +13,7 @@ use std::hash::BuildHasher;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures::Stream;
+use futures::{Future, Stream};
 use hyper::client::{Client, HttpConnector};
 use hyper::header::{self, HeaderValue};
 use hyper::{Body, Request, Response, Uri};
@@ -56,6 +56,17 @@ pub struct Connection {
 	remaining: Cell<Option<i32>>,
 	/// Time when request amount will reset
 	reset_time: Cell<Instant>,
+}
+
+fn with_timeout<E: failure::Fail, F: Future<Error = E>>(d: Duration, handle: &tokio_core::reactor::Handle, f: F) -> impl Future<Item = F::Item, Error = Error> {
+	use futures::future::Either;
+	let timeout = tokio_core::reactor::Timeout::new(d, handle).unwrap();
+	f.select2(timeout).then(|res| match res {
+		Ok(Either::A((response, _))) => Ok(response),
+		Ok(Either::B((_, _))) => Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout").into()),
+		Err(Either::A((e, _))) => Err(e.into()),
+		Err(Either::B((e, _))) => Err(e.into()),
+	})
 }
 
 impl Connection {
@@ -119,6 +130,8 @@ impl Connection {
 
 		// Execute the request!
 		let response = self.client.request(req);
+		let response = with_timeout(Duration::from_secs(30), &self.core.borrow().handle(), response);
+
 		let response = self.core.borrow_mut().run(response)?;
 
 		// Update values from response ratelimiting headers
@@ -141,7 +154,8 @@ impl Connection {
 
 		let response_str = format!("{:?}", response);
 		let get_body = |response: Response<Body>| -> Result<String, Error> {
-			let body = self.core.borrow_mut().run(response.into_body().concat2())?;
+			let body = with_timeout(Duration::from_secs(30), &self.core.borrow().handle(), response.into_body().concat2());
+			let body = self.core.borrow_mut().run(body)?;
 			let body: String = String::from_utf8_lossy(&body).into();
 			Ok(body)
 		};
