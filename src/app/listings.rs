@@ -205,4 +205,17 @@ impl App {
 
 		Listing::from_value(&data, username, self)
 	}
+
+	/// Get a comment.
+	/// # Arguments
+	/// * `thing` - The fullname of the comment
+	pub fn get_comment(&self, thing: &str) -> Result<Option<Comment>, Error> {
+		let req = Request::get(Url::parse_with_params("https://www.reddit.com/api/info/.json", &[("id", thing)])?.into_string()).body(Body::empty()).unwrap();
+
+		let data = self.conn.run_request(req)?;
+		let data = data["data"]["children"].clone();
+
+		let mut l = Listing::from_value(&data, "", self)?;
+		Ok(l.children.pop_front())
+	}
 }
